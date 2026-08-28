@@ -56,6 +56,25 @@ def extract(path: Path = RAW_DATA_PATH) -> pd.DataFrame:
     return data
 
 
+def inspect(data: pd.DataFrame) -> None:
+    """Print the initial dataset checks required by the assignment rubric."""
+    print("\n=== INITIAL DATA INSPECTION ===")
+    print("\nFirst five rows:")
+    print(data.head().to_string(index=False))
+    print(f"\nShape: {data.shape[0]:,} rows x {data.shape[1]:,} columns")
+    print("\nColumns:")
+    print(", ".join(data.columns))
+    print("\nData types:")
+    print(data.dtypes.to_string())
+    print("\nMissing values by column:")
+    print(data.isna().sum().to_string())
+    print(f"\nExact duplicate copies: {int(data.duplicated().sum()):,}")
+    print("\nRelevant categorical values:")
+    for column in CATEGORICAL_COLUMNS:
+        values = sorted(data[column].dropna().astype(str).unique().tolist())
+        print(f"- {column} ({len(values)}): {values}")
+
+
 def parse_transaction_dates(values: pd.Series) -> pd.Series:
     """Parse the four known date formats without ambiguous day/month guessing."""
     text = values.astype("string").str.strip()
@@ -106,6 +125,30 @@ def clean(raw: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
+def report_cleaning(raw: pd.DataFrame, cleaned: pd.DataFrame) -> None:
+    """Print the before-and-after cleaning results."""
+    deduplicated_raw = raw.drop_duplicates().reset_index(drop=True)
+    changed_columns = [
+        column
+        for column in cleaned.columns
+        if not (
+            deduplicated_raw[column]
+            .astype("string")
+            .fillna("<MISSING>")
+            .equals(cleaned[column].astype("string").fillna("<MISSING>"))
+        )
+    ]
+
+    print("\n=== CLEANING SUMMARY ===")
+    print(f"Rows: {len(raw):,} before -> {len(cleaned):,} after")
+    print(
+        f"Missing values: {int(raw.isna().sum().sum()):,} before -> "
+        f"{int(cleaned.isna().sum().sum()):,} after"
+    )
+    print(f"Exact duplicate copies removed: {int(raw.duplicated().sum()):,}")
+    print(f"Columns cleaned: {', '.join(changed_columns)}")
+
+
 def transform(cleaned: pd.DataFrame) -> pd.DataFrame:
     """Min-Max scale price and one-hot encode body style."""
     data = cleaned.copy()
@@ -125,6 +168,29 @@ def transform(cleaned: pd.DataFrame) -> pd.DataFrame:
         data.pop("body-style"), prefix="body_style", dtype="int64"
     )
     return pd.concat([data, encoded_body_style], axis=1)
+
+
+def report_transformation(cleaned: pd.DataFrame, processed: pd.DataFrame) -> None:
+    """Print concrete examples of the required transformations."""
+    first_index = cleaned.index[0]
+    body_style = cleaned.loc[first_index, "body-style"]
+    encoded_column = f"body_style_{body_style}"
+
+    print("\n=== TRANSFORMATION SUMMARY ===")
+    print(
+        f"Min-Max scaling: price {cleaned.loc[first_index, 'price']:,.2f} -> "
+        f"price_minmax {processed.loc[first_index, 'price_minmax']:.6f}"
+    )
+    print(
+        f"One-hot encoding: body-style '{body_style}' -> "
+        f"{encoded_column}={processed.loc[first_index, encoded_column]}"
+    )
+    print(
+        "New body-style columns: "
+        + ", ".join(
+            column for column in processed.columns if column.startswith("body_style_")
+        )
+    )
 
 
 def validate(raw: pd.DataFrame, processed: pd.DataFrame) -> None:
@@ -157,10 +223,17 @@ def load(processed: pd.DataFrame, path: Path = PROCESSED_DATA_PATH) -> None:
 
 def main() -> None:
     raw = extract()
-    processed = transform(clean(raw))
+    inspect(raw)
+
+    cleaned = clean(raw)
+    report_cleaning(raw, cleaned)
+
+    processed = transform(cleaned)
+    report_transformation(cleaned, processed)
     validate(raw, processed)
     load(processed)
 
+    print("\n=== LOAD SUMMARY ===")
     print("ETL pipeline completed successfully.")
     print(f"Rows: {len(raw):,} raw -> {len(processed):,} processed")
     print(f"Columns: {raw.shape[1]} raw -> {processed.shape[1]} processed")
